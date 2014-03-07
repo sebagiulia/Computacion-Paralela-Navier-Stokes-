@@ -5,7 +5,7 @@
 #define IX(i,j) ((i)+(n+2)*(j))
 #define SWAP(x0,x) {float * tmp=x0;x0=x;x=tmp;}
 
-typedef enum { NEITHER = 0, HORIZONTAL = 1, VERTICAL = 2 } boundary;
+typedef enum { NONE = 0, VERTICAL = 1, HORIZONTAL = 2 } boundary;
 
 static void add_source(unsigned int n, float * x, const float * s, float dt)
 {
@@ -18,10 +18,10 @@ static void add_source(unsigned int n, float * x, const float * s, float dt)
 static void set_bnd(unsigned int n, boundary b, float * x)
 {
     for (unsigned int i = 1; i <= n; i++) {
-        x[IX(0, i)]     = b == 1 ? -x[IX(1, i)] : x[IX(1, i)];
-        x[IX(n + 1, i)] = b == 1 ? -x[IX(n, i)] : x[IX(n, i)];
-        x[IX(i, 0)]     = b == 2 ? -x[IX(i, 1)] : x[IX(i, 1)];
-        x[IX(i, n + 1)] = b == 2 ? -x[IX(i, n)] : x[IX(i, n)];
+        x[IX(0, i)]     = b == VERTICAL ? -x[IX(1, i)] : x[IX(1, i)];
+        x[IX(n + 1, i)] = b == VERTICAL ? -x[IX(n, i)] : x[IX(n, i)];
+        x[IX(i, 0)]     = b == HORIZONTAL ? -x[IX(i, 1)] : x[IX(i, 1)];
+        x[IX(i, n + 1)] = b == HORIZONTAL ? -x[IX(i, n)] : x[IX(i, n)];
     }
     x[IX(0, 0)]         = 0.5f * (x[IX(1, 0)]     + x[IX(0, 1)]);
     x[IX(0, n + 1)]     = 0.5f * (x[IX(1, n + 1)] + x[IX(0, n)]);
@@ -94,10 +94,10 @@ static void project(unsigned int n, float *u, float *v, float *p, float *div)
             p[IX(i, j)] = 0;
         }
     }
-    set_bnd(n, 0, div);
-    set_bnd(n, 0, p);
+    set_bnd(n, NONE, div);
+    set_bnd(n, NONE, p);
 
-    lin_solve(n, 0, p, div, 1, 4);
+    lin_solve(n, NONE, p, div, 1, 4);
 
     for (unsigned int i = 1; i <= n; i++) {
         for (unsigned int j = 1; j <= n; j++) {
@@ -105,17 +105,17 @@ static void project(unsigned int n, float *u, float *v, float *p, float *div)
             v[IX(i, j)] -= 0.5f * n * (p[IX(i, j + 1)] - p[IX(i, j - 1)]);
         }
     }
-    set_bnd(n, 1, u);
-    set_bnd(n, 2, v);
+    set_bnd(n, VERTICAL, u);
+    set_bnd(n, HORIZONTAL, v);
 }
 
 void dens_step(unsigned int n, float *x, float *x0, float *u, float *v, float diff, float dt)
 {
     add_source(n, x, x0, dt);
     SWAP(x0, x);
-    diffuse(n, 0, x, x0, diff, dt);
+    diffuse(n, NONE, x, x0, diff, dt);
     SWAP(x0, x);
-    advect(n, 0, x, x0, u, v, dt);
+    advect(n, NONE, x, x0, u, v, dt);
 }
 
 void vel_step(unsigned int n, float *u, float *v, float *u0, float *v0, float visc, float dt)
@@ -123,13 +123,13 @@ void vel_step(unsigned int n, float *u, float *v, float *u0, float *v0, float vi
     add_source(n, u, u0, dt);
     add_source(n, v, v0, dt);
     SWAP(u0, u);
-    diffuse(n, 1, u, u0, visc, dt);
+    diffuse(n, VERTICAL, u, u0, visc, dt);
     SWAP(v0, v);
-    diffuse(n, 2, v, v0, visc, dt);
+    diffuse(n, HORIZONTAL, v, v0, visc, dt);
     project(n, u, v, u0, v0);
     SWAP(u0, u);
     SWAP(v0, v);
-    advect(n, 1, u, u0, u0, v0, dt);
-    advect(n, 2, v, v0, u0, v0, dt);
+    advect(n, VERTICAL, u, u0, u0, v0, dt);
+    advect(n, HORIZONTAL, v, v0, u0, v0, dt);
     project(n, u, v, u0, v0);
 }
