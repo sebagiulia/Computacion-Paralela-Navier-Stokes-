@@ -1,5 +1,5 @@
-CC=clang
-CFLAGS=-O3 -march=native -Wall -std=c99 -g
+CC=cc
+CFLAGS=-std=c99 -Wall -Wextra -Wno-unused-parameter
 LDFLAGS=
 
 TARGETS=demo headless
