@@ -162,7 +162,7 @@ int main ( int argc, char ** argv )
 {
 	int i = 0;
 
-	if ( argc != 1 && argc != 6 ) {
+	if ( argc != 1 && argc != 7 ) {
 		fprintf ( stderr, "usage : %s N dt diff visc force source\n", argv[0] );
 		fprintf ( stderr, "where:\n" );\
 		fprintf ( stderr, "\t N      : grid resolution\n" );
