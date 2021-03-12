@@ -1,10 +1,10 @@
-CC=cc
-CFLAGS=-std=c99 -Wall -Wextra -Wno-unused-parameter
+CC=gcc
+CFLAGS=-Wall -Wextra -Wno-unused-parameter
 LDFLAGS=
 
 TARGETS=demo headless
 SOURCES=$(shell echo *.c)
-COMMON_OBJECTS=timing.o solver.o
+COMMON_OBJECTS=solver.o
 
 all: $(TARGETS)
 

@@ -19,7 +19,7 @@
 #include <GL/glut.h>
 
 #include "solver.h"
-#include "timing.h"
+#include "wtime.h"
 
 /* macros */
 

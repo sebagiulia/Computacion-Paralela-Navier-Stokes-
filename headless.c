@@ -17,7 +17,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "timing.h"
+#include "wtime.h"
 
 /* macros */
 
