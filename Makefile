@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -Wno-unused-parameter
+CFLAGS=-std=c11 -Wall -Wextra -Wno-unused-parameter
 LDFLAGS=
 
 TARGETS=demo headless
