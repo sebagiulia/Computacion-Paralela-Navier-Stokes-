@@ -4,7 +4,7 @@ LDFLAGS=
 
 TARGETS=demo headless
 SOURCES=$(shell echo *.c)
-COMMON_OBJECTS=solver.o
+COMMON_OBJECTS=solver.o wtime.o
 
 all: $(TARGETS)
 
