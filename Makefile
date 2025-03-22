@@ -1,4 +1,4 @@
-CC=gcc
+CC=gcc -O3 -ffast-math -save-temps -DNG=1024
 CFLAGS=-std=c11 -Wall -Wextra -Wno-unused-parameter
 LDFLAGS=
 
@@ -15,7 +15,7 @@ headless: headless.o $(COMMON_OBJECTS)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 clean:
-	rm -f $(TARGETS) *.o .depend *~
+	rm -f $(TARGETS) *.o *.i *.s .depend *~
 
 .depend: *.[ch]
 	$(CC) -MM $(SOURCES) >.depend
