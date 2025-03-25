@@ -1,7 +1,7 @@
-CC=gcc -O3 -ffast-math -save-temps -DNG=1024
-CFLAGS=-std=c11 -Wall -Wextra -Wno-unused-parameter
+CC=gcc
+N=128
+CFLAGS=-std=c11 -Wall -Wextra -Wno-unused-parameter -DND=$(N)
 LDFLAGS=
-
 TARGETS1= demo1 headless1
 TARGETS2= demo2 headless2
 TARGETS3= demo3 headless3

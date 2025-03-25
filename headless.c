@@ -185,23 +185,18 @@ int main(int argc, char** argv)
         exit(1);
     }
 
-    if (argc == 1) {
-        N = 128;
-        dt = 0.1f;
-        diff = 0.0f;
-        visc = 0.0f;
-        force = 5.0f;
-        source = 100.0f;
-        fprintf(stderr, "Using defaults : N=%d dt=%g diff=%g visc=%g force = %g source=%g\n",
-                N, dt, diff, visc, force, source);
-    } else {
-        N = atoi(argv[1]);
-        dt = atof(argv[2]);
-        diff = atof(argv[3]);
-        visc = atof(argv[4]);
-        force = atof(argv[5]);
-        source = atof(argv[6]);
-    }
+#ifndef ND
+    N = 128;
+#else
+    N = ND;
+#endif
+    dt = 0.1f;
+    diff = 0.0f;
+    visc = 0.0f;
+    force = 5.0f;
+    source = 100.0f;
+    fprintf(stderr, "Using: N=%d dt=%g diff=%g visc=%g force = %g source=%g\n",
+		N, dt, diff, visc, force, source);
 
     if (!allocate_data()) {
         exit(1);
