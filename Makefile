@@ -1,43 +1,35 @@
 CC=gcc
-N=128
+N=512
 CFLAGS=-std=c11 -Wall -Wextra -Wno-unused-parameter -DND=$(N)
 LDFLAGS=
-TARGETS1= demo1 headless1
-TARGETS2= demo2 headless2
-TARGETS3= demo3 headless3
-SOURCES=$(shell echo *.c)
 COMMON_OBJECTS=solver.o wtime.o
+TARGETS=demo headless
+SOURCES=$(shell echo *.c)
 
-o1: $(TARGETS1) 
+ifeq ($(O), 1)
+	CFLAGS += -O1
+else ifeq ($(O), 2)
+	CFLAGS += -O3
+else ifeq ($(O), 3)
+       	CFLAGS += -O3 -ffast-math -march=native
+else ifeq ($(O), 4)
+	CC=clang
+       	CFLAGS += -O3 -ffast-math -march=native
+endif
 
-demo1: demo.o $(COMMON_OBJECTS)
+all: $(TARGETS) 
+
+demo: demo.o $(COMMON_OBJECTS)
 	$(CC) $(CFLAGS) $^ -o demo $(LDFLAGS) -lGL -lGLU -lglut
 
-headless1: headless.o $(COMMON_OBJECTS)
+headless: headless.o $(COMMON_OBJECTS)
 	$(CC) $(CFLAGS) $^ -o headless $(LDFLAGS)
-
-o2: $(TARGETS2) 
-
-demo2: demo.o $(COMMON_OBJECTS)
-	$(CC) $(CFLAGS) -O3 $^ -o demo $(LDFLAGS) -lGL -lGLU -lglut
-
-headless2: headless.o $(COMMON_OBJECTS)
-	$(CC) $(CFLAGS) -O3 $^ -o headless $(LDFLAGS)
-
-o3: $(TARGETS3) 
-
-demo3: demo.o $(COMMON_OBJECTS)
-	$(CC) $(CFLAGS) -O3 -ffast-math -march=native $^ -o demo $(LDFLAGS) -lGL -lGLU -lglut
-
-headless3: headless.o $(COMMON_OBJECTS)
-	$(CC) $(CFLAGS) -O3 -ffast-math -march=native $^ -o headless $(LDFLAGS)
 
 clean:
 	rm -f $(TARGETS) *.o *.i *.s .depend *~
 
 .depend: *.[ch]
 	$(CC) -MM $(SOURCES) >.depend
-
 
 -include .depend
 
