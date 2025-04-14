@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "immintrin.h": "c",
+        "stddef.h": "c",
+        "numeric": "c",
+        "stdio.h": "c"
+    }
+}
