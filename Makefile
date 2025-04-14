@@ -6,6 +6,10 @@ TARGETS=demo headless
 SOURCES=$(shell echo *.c)
 SOLVER=1
 SOLVERFILE=solver.o
+SHOW=false
+
+
+
 ifeq ($(CC), icc)
 	CFLAGS += -diag-disable=10441 
 endif
@@ -25,6 +29,10 @@ ifeq ($(SOLVER), 2)
 else ifeq ($(SOLVER), 3)
 	SOLVERFILE=solver_redblack.o
 endif	
+
+ifeq ($(SHOW), true)
+	CFLAGS+= -fopt-info-vec
+endif
 
 COMMON_OBJECTS=$(SOLVERFILE) wtime.o
 
