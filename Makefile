@@ -2,10 +2,10 @@ CC=gcc
 N=512
 CFLAGS=-std=c11 -Wall -Wextra -Wno-unused-parameter -DND=$(N) -save-temps
 LDFLAGS=
-COMMON_OBJECTS=solver.o wtime.o
 TARGETS=demo headless
 SOURCES=$(shell echo *.c)
-
+SOLVER=1
+SOLVERFILE=solver.o
 ifeq ($(CC), icc)
 	CFLAGS += -diag-disable=10441 
 endif
@@ -15,11 +15,18 @@ ifeq ($(O), 1)
 else ifeq ($(O), 2)
 	CFLAGS += -O3
 else ifeq ($(O), 3)
-       	CFLAGS += -O3 -ffast-math -march=native  
+	CFLAGS += -O3 -ffast-math -march=native  
 else ifeq ($(O), 4)
-       	CFLAGS += -O3 -ffast-math -march=native -ftree-vectorize -funsafe-math-optimizations
+	CFLAGS += -O3 -ffast-math -march=native -ftree-vectorize -funsafe-math-optimizations
 endif
 
+ifeq ($(SOLVER), 2)
+	SOLVERFILE=solver_block.o
+else ifeq ($(SOLVER), 3)
+	SOLVERFILE=solver_redblack.o
+endif	
+
+COMMON_OBJECTS=$(SOLVERFILE) wtime.o
 
 all: $(TARGETS) 
 
