@@ -25,14 +25,14 @@ else ifeq ($(O), 4)
 endif
 
 ifeq ($(SOLVER), 2)
-	SOLVERFILE=solver_block.o
+	SOLVERFILE=solver_vect.o
 endif	
 
 ifeq ($(SHOW), true)
 	CFLAGS+= -fopt-info
 endif
 
-COMMON_OBJECTS=$(SOLVERFILE) wtime.o
+COMMON_OBJECTS=$(SOLVERFILE) timing.o
 
 all: $(TARGETS) 
 
