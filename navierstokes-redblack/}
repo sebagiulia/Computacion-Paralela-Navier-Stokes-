@@ -131,7 +131,7 @@ static void one_step ( void )
 {
 	int num_threads = omp_get_num_threads();
 	int block_size = N / num_threads;	 // Filas por hilo
-#pragma omp for private(start_t) reduction(+:dens_ns_p_cell, vel_ns_p_cell)
+#pragma omp for reduction(+:dens_ns_p_cell, vel_ns_p_cell)
 	for (int i = 0; i < num_threads; i++)
 	{
 		int pos = i * block_size * N;

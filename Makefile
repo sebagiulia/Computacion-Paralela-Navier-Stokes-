@@ -11,15 +11,16 @@ SHOW=false
 
 
 ifeq ($(CC), icc)
-	CFLAGS += -diag-disable=10441 
+	CFLAGS += -diag-disable=10441 -xHost
 endif
 
+
 ifeq ($(O), 1)
-	CFLAGS += -O1
+	CFLAGS += -O3 -ffast-math -funsafe-math-optimizations  
 else ifeq ($(O), 2)
-	CFLAGS += -O3
+	CFLAGS += -O3 -march=native
 else ifeq ($(O), 3)
-	CFLAGS += -O3 -ffast-math -march=native  
+	CFLAGS += -O3 -ffast-math   
 else ifeq ($(O), 4)
 	CFLAGS += -O3 -ffast-math -march=native -ftree-vectorize -funsafe-math-optimizations
 endif

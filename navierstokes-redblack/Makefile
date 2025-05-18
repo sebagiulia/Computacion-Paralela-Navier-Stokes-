@@ -1,6 +1,7 @@
 CC=gcc
-N=512
-CFLAGS=-std=c11 -Wall -Wextra -Wno-unused-parameter -DND=$(N) -save-temps
+N := 5
+EXP := $(shell echo "2^$(N)" | bc)
+CFLAGS=-std=c11 -Wall -Wextra -Wno-unused-parameter -DND=$(EXP) -save-temps
 LDFLAGS=
 TARGETS=demo headless
 SOURCES=$(shell echo *.c)
@@ -17,15 +18,19 @@ endif
 ifeq ($(O), 1)
 	CFLAGS += -O1
 else ifeq ($(O), 2)
-	CFLAGS += -O3
+	CFLAGS += -O3 -ffast-math
 else ifeq ($(O), 3)
 	CFLAGS += -O3 -ffast-math -march=native  
 else ifeq ($(O), 4)
 	CFLAGS += -O3 -ffast-math -march=native -ftree-vectorize -funsafe-math-optimizations
+else ifeq ($(O), 5)
+	CFLAGS += -O3 -ffast-math -march=native -ftree-vectorize -funsafe-math-optimizations -fopenmp
 endif
 
 ifeq ($(SOLVER), 2)
 	SOLVERFILE=solver_vect.o
+else ifeq ($(SOLVER), 3)
+	SOLVERFILE=solver_vect_openmp.o
 endif	
 
 ifeq ($(SHOW), true)
