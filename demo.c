@@ -399,7 +399,6 @@ int main(int argc, char** argv)
 #else
     N = ND;
 #endif    
-    N = 64;
     dt = 0.1f;
     diff = 0.0f;
     visc = 0.0f;

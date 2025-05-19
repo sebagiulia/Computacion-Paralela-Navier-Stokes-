@@ -1,5 +1,5 @@
 CC=gcc
-N := 5
+N := 9
 EXP := $(shell echo "2^$(N)" | bc)
 CFLAGS=-std=c11 -Wall -Wextra -Wno-unused-parameter -DND=$(EXP) -save-temps
 LDFLAGS=
