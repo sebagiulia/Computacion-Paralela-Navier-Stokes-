@@ -24,7 +24,7 @@
 
 /* macros */
 
-#define IX(x,y) (rb_idx((x),(y),(N+2)))
+#define IX(x,y) (rb_idx((x),(y),(N+2), (N + 2)))
 
 /* global variables */
 
@@ -122,31 +122,32 @@ static void one_step ( void )
 	static double react_ns_p_cell = 0.0;
 	static double vel_ns_p_cell = 0.0;
 	static double dens_ns_p_cell = 0.0;
-
-
 	start_t = wtime();
 	react ( dens_prev, u_prev, v_prev );
-	react_ns_p_cell +=  (N*N)/ (1.0e6 * (wtime()-start_t));
-#pragma omp parallel firstprivate(dens_prev, u_prev, v_prev, visc) 
+	react_ns_p_cell += 1.0e9 * (wtime()-start_t)/(N*N);
+#pragma omp parallel
 {
-	int num_threads = omp_get_num_threads();
-	int block_size = N / num_threads;	 // Filas por hilo
+        int num_threads = omp_get_num_threads();
+        int block_height = (N + 2) / num_threads;        // Filas por bloque 
+    	
 #pragma omp for private(start_t) reduction(+:dens_ns_p_cell, vel_ns_p_cell)
-	for (int i = 0; i < num_threads; i++)
-	{
-		int pos = i * block_size * N;
-		int size = i != num_threads - 1 ? block_size : N % num_threads ;
-		start_t = wtime();
-		vel_step ( size, &u[pos], &v[pos], &u_prev[pos], &v_prev[pos], visc, dt);
-		vel_ns_p_cell += (block_size*block_size)/ (1.0e6 * (wtime()-start_t));
+        for (int i = 0; i < num_threads; i++)
+        {
+			    int pos = i * block_height * (N + 2);
+                int height = i != num_threads - 1 ? block_height : block_height - (N + 2) % block_height ;
+                start_t = wtime();
+				vel_step ( height, N + 2, &u[pos], &v[pos], &u_prev[pos], &v_prev[pos], visc, dt, i);
+                vel_ns_p_cell += (height*N)/ (1.0e6 * (wtime()-start_t));
 
-		start_t = wtime();
-		dens_step ( size, dens, dens_prev, &u[pos], &v[pos], diff, dt);
-		dens_ns_p_cell +=(block_size*block_size)/ (1.0e6 * (wtime()-start_t));
-	}
+                start_t = wtime();
+
+                dens_step ( height, N + 2, dens, dens_prev, &u[pos], &v[pos], diff, dt, i);
+                dens_ns_p_cell +=(height*N)/ (1.0e6 * (wtime()-start_t));
+        }
 }
+
 	if (1.0<wtime()-one_second) { /* at least 1s between stats */
-		printf("%lf | %lf | %lf | %lf: cell per ns total, react, vel_step, dens_step\n",
+		printf("%lf, %lf, %lf, %lf: ns per cell total, react, vel_step, dens_step\n",
 			(react_ns_p_cell+vel_ns_p_cell+dens_ns_p_cell)/times,
 			react_ns_p_cell/times, vel_ns_p_cell/times, dens_ns_p_cell/times);
 		one_second = wtime();
@@ -200,6 +201,7 @@ int main ( int argc, char** argv)
     }
     clear_data();
     for (i = 0; i < 2048; i++) {
+
         one_step();
     }
     free_data();

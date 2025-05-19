@@ -25,7 +25,7 @@
 
 /* macros */
 
-#define IX(x,y) (rb_idx((x),(y),(N+2)))
+#define IX(x,y) (rb_idx((x),(y),(N+2), (N+2)))
 
 /* global variables */
 
@@ -170,9 +170,9 @@ static void draw_density ( void )
   ----------------------------------------------------------------------
 */
 
-static void react ( float * d, float * u, float * v )
+static void react ( float * d, float * u, float * v, unsigned int h, unsigned int w )
 {
-	int i, j, size = (N+2)*(N+2);
+	int i, j, size = h*w;
 
 	float max_velocity2 = 0.0f;
 	float max_density = 0.0f;
@@ -204,7 +204,7 @@ static void react ( float * d, float * u, float * v )
 	i = (int)((       mx /(float)win_x)*N+1);
 	j = (int)(((win_y-my)/(float)win_y)*N+1);
 
-	if ( i<1 || i>N || j<1 || j>N ) return;
+	if ( i<1 || i>(h - 2) || j<1 || j>(w - 2) ) return;
 
 	if ( mouse_down[0] ) {
 		u[IX(i,j)] = force * (mx-omx);
@@ -280,26 +280,29 @@ static void idle_func ( void )
 	static double react_ns_p_cell = 0.0;
 	static double vel_ns_p_cell = 0.0;
 	static double dens_ns_p_cell = 0.0;
-
-	start_t = wtime();
-	react ( dens_prev, u_prev, v_prev );
-	react_ns_p_cell += 1.0e9 * (wtime()-start_t)/(N*N);
-#pragma omp parallel firstprivate(dens_prev, u_prev, v_prev, visc)
+#pragma omp parallel
 {
         int num_threads = omp_get_num_threads();
-        int block_size = N / num_threads;        // Filas por hilo
-#pragma omp for private(start_t) reduction(+:dens_ns_p_cell, vel_ns_p_cell)
+        int block_height = (N + 2) / num_threads;        // Filas por bloque 
+    	
+#pragma omp for private(start_t) reduction(+:dens_ns_p_cell, vel_ns_p_cell, react_ns_p_cell)
         for (int i = 0; i < num_threads; i++)
         {
-                int pos = i * block_size * N;
-                int size = i != num_threads - 1 ? block_size : N % num_threads ;
-                start_t = wtime();
-                vel_step ( size, &u[pos], &v[pos], &u_prev[pos], &v_prev[pos], visc, dt);
-                vel_ns_p_cell += (block_size*block_size)/ (1.0e6 * (wtime()-start_t));
+			    int pos = i * block_height * (N + 2);
+                int height = i != num_threads - 1 ? block_height : block_height + ((N + 2) % num_threads) ;
+				
+				start_t = wtime();
+				react ( &dens_prev[pos], &u_prev[pos], &v_prev[pos], height, N + 2 );
+				react_ns_p_cell += 1.0e9 * (wtime()-start_t)/(height*N);
 
                 start_t = wtime();
-                dens_step ( size, dens, dens_prev, &u[pos], &v[pos], diff, dt);
-                dens_ns_p_cell +=(block_size*block_size)/ (1.0e6 * (wtime()-start_t));
+				vel_step ( height, N + 2, &u[pos], &v[pos], &u_prev[pos], &v_prev[pos], visc, dt, i);
+                vel_ns_p_cell += (height*N)/ (1.0e6 * (wtime()-start_t));
+
+                start_t = wtime();
+
+                dens_step ( height, N + 2, &dens[pos], &dens_prev[pos], &u[pos], &v[pos], diff, dt, i);
+                dens_ns_p_cell +=(height*N)/ (1.0e6 * (wtime()-start_t));
         }
 }
 
