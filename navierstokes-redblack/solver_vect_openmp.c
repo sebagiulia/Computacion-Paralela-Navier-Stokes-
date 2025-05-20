@@ -1,20 +1,23 @@
+
 #include <stddef.h>
-#include <immintrin.h>
-#include <unistd.h>
+
 #include <stdlib.h>
 #include <stdio.h>
-#include "solver.h"
+#include <assert.h>
+#include <omp.h> //soporte openmp
 #include "indices.h"
+
+#include "solver.h"
 
 #define IX(x,y) (rb_idx((x),(y),(n+2)))
 #define SWAP(x0,x) {float * tmp=x0;x0=x;x=tmp;}
-
 typedef enum { NONE = 0, VERTICAL = 1, HORIZONTAL = 2 } boundary;
 typedef enum { RED, BLACK } grid_color;
 
 static void add_source(unsigned int n, float * x, const float * s, float dt)
 {
     unsigned int size = (n + 2) * (n + 2);
+    #pragma omp parallel for default(shared) schedule(static)
     for (unsigned int i = 0; i < size; i++) {
         x[i] += dt * s[i];
     }
@@ -22,6 +25,7 @@ static void add_source(unsigned int n, float * x, const float * s, float dt)
 
 static void set_bnd(unsigned int n, boundary b, float * x)
 {
+    // no me mejoraba paralelizando este loop
     for (unsigned int i = 1; i <= n; i++) {
         x[IX(0, i)]     = b == VERTICAL ? -x[IX(1, i)] : x[IX(1, i)];
         x[IX(n + 1, i)] = b == VERTICAL ? -x[IX(n, i)] : x[IX(n, i)];
@@ -34,8 +38,10 @@ static void set_bnd(unsigned int n, boundary b, float * x)
     x[IX(n + 1, n + 1)] = 0.5f * (x[IX(n, n + 1)] + x[IX(n + 1, n)]);
 }
 
+#include <immintrin.h>
 static void lin_solve_rb_step_vect(grid_color color,
-                              unsigned int width,
+                              unsigned int n,
+                              unsigned int w,
                               float a,
                               float c,
                               const float * restrict same0,
@@ -46,9 +52,10 @@ static void lin_solve_rb_step_vect(grid_color color,
     int shift = color == RED ? 1 : -1;
     unsigned int start = color == RED ? 0 : 1;
 
+    unsigned int width = w / 2;
     __m256 a_vec = _mm256_set1_ps(a);
     __m256 c_vec = _mm256_set1_ps(c);
-    for (unsigned int y = 1; y <= width; ++y, shift = -shift, start = 1 - start) {
+    for (unsigned int y = 1; y <= n; ++y, shift = -shift, start = 1 - start) {
         for (unsigned int x = start; x < width - (1 - start); x+=8) {
             int index = idx(x, y, width);
             __m256 top = _mm256_loadu_ps(&neigh[index - width]);
@@ -65,22 +72,46 @@ static void lin_solve_rb_step_vect(grid_color color,
     }
 }
 
-static void lin_solve(unsigned int n, boundary b,
-                      float * restrict x,
-                      const float * restrict x0,
-                      float a, float c)
+static void lin_solve(unsigned int n, boundary b, float * x, const float * x0, float a, float c)
 {
+    int tid, work_size, threads, start, end;
     unsigned int color_size = (n + 2) * ((n + 2) / 2);
     const float * red0 = x0;
     const float * blk0 = x0 + color_size;
     float * red = x;
     float * blk = x + color_size;
-    unsigned int width = (n + 2) / 2;
 
-    for (unsigned int k = 0; k < 20; ++k) {
-	lin_solve_rb_step_vect(RED,   width, a, c, red0, blk, red);
-        lin_solve_rb_step_vect(BLACK, width, a, c, blk0, red, blk);
-        set_bnd(n, b, x);
+    #pragma omp parallel default(shared) private(tid, work_size, start, end, threads)
+    {
+        tid = omp_get_thread_num();
+        threads = omp_get_max_threads();
+
+        assert (threads <= n);
+        
+        work_size = n / threads;
+        start = tid * work_size;
+        end   = (tid + 1) * work_size;
+
+        //si threads no es divisor de n, el ultimo hace un poco mas de trabajo
+        if (end + work_size > n) end = n; 
+
+        for (unsigned int k = 0; k < 20; k++) // cada thread ejecuta el loop
+        {
+            // red
+            unsigned int pos = start * ((n + 2) / 2);
+            lin_solve_rb_step_vect(RED,   end - start, n + 2, a, c, &red0[pos], &blk[pos], &red[pos]);
+
+            #pragma omp barrier //todos los threads se sincronizan
+            
+            // black
+            lin_solve_rb_step_vect(BLACK, end - start, n + 2, a, c, &blk0[pos], &red[pos], &blk[pos]);
+
+            #pragma omp barrier //todos los threads se sincronizan
+
+            #pragma task wait  //todos los threads se sincronizan
+            set_bnd(n, b, x);
+            #pragma task taskwait
+        }
     }
 }
 
@@ -92,12 +123,14 @@ static void diffuse(unsigned int n, boundary b, float * x, const float * x0, flo
 
 static void advect(unsigned int n, boundary b, float * d, const float * d0, const float * u, const float * v, float dt)
 {
+    //se hacen privadas
     int i0, i1, j0, j1;
     float x, y, s0, t0, s1, t1;
 
-    float dt0 = dt * n;
-    for (unsigned int i = 1; i <= n; i++) {
-        for (unsigned int j = 1; j <= n; j++) {
+    float dt0 = dt * n; //se deja compartida
+    #pragma omp parallel for schedule(static) default(shared) private(i0, i1, j0, j1, x, y, s0, t0, s1, t1)
+    for (unsigned int j = 1; j <= n; j++) {
+        for (unsigned int i = 1; i <= n; i++) {
             x = i - dt0 * u[IX(i, j)];
             y = j - dt0 * v[IX(i, j)];
             if (x < 0.5f) {
@@ -122,29 +155,34 @@ static void advect(unsigned int n, boundary b, float * d, const float * d0, cons
                           s1 * (t0 * d0[IX(i1, j0)] + t1 * d0[IX(i1, j1)]);
         }
     }
+
     set_bnd(n, b, d);
 }
 
 static void project(unsigned int n, float *u, float *v, float *p, float *div)
-{
-    for (unsigned int i = 1; i <= n; i++) {
-        for (unsigned int j = 1; j <= n; j++) {
+{   
+    #pragma omp parallel for default(shared)
+    for (unsigned int j = 1; j <= n; j++) {
+        for (unsigned int i = 1; i <= n; i++) {
             div[IX(i, j)] = -0.5f * (u[IX(i + 1, j)] - u[IX(i - 1, j)] +
                                      v[IX(i, j + 1)] - v[IX(i, j - 1)]) / n;
             p[IX(i, j)] = 0;
         }
     }
-    set_bnd(n, NONE, div);
+
+    set_bnd(n, NONE, div);        
     set_bnd(n, NONE, p);
 
     lin_solve(n, NONE, p, div, 1, 4);
-
-    for (unsigned int i = 1; i <= n; i++) {
-        for (unsigned int j = 1; j <= n; j++) {
+    
+    #pragma omp parallel for default(shared)
+    for (unsigned int j = 1; j <= n; j++) {
+        for (unsigned int i = 1; i <= n; i++) {
             u[IX(i, j)] -= 0.5f * n * (p[IX(i + 1, j)] - p[IX(i - 1, j)]);
             v[IX(i, j)] -= 0.5f * n * (p[IX(i, j + 1)] - p[IX(i, j - 1)]);
         }
     }
+    
     set_bnd(n, VERTICAL, u);
     set_bnd(n, HORIZONTAL, v);
 }
@@ -152,30 +190,24 @@ static void project(unsigned int n, float *u, float *v, float *p, float *div)
 void dens_step(unsigned int n, float *x, float *x0, float *u, float *v, float diff, float dt)
 {
     add_source(n, x, x0, dt);
-#pragma omp barrier
     SWAP(x0, x);
     diffuse(n, NONE, x, x0, diff, dt);
-#pragma omp barrier
     SWAP(x0, x);
     advect(n, NONE, x, x0, u, v, dt);
-#pragma omp barrier
 }
 
 void vel_step(unsigned int n, float *u, float *v, float *u0, float *v0, float visc, float dt)
 {
     add_source(n, u, u0, dt);
     add_source(n, v, v0, dt);
-    diffuse(n, VERTICAL, u, u0, visc, dt);
-#pragma omp barrier
     SWAP(u0, u);
+    diffuse(n, VERTICAL, u, u0, visc, dt);
     SWAP(v0, v);
     diffuse(n, HORIZONTAL, v, v0, visc, dt);
     project(n, u, v, u0, v0);
-#pragma omp barrier
     SWAP(u0, u);
     SWAP(v0, v);
     advect(n, VERTICAL, u, u0, u0, v0, dt);
     advect(n, HORIZONTAL, v, v0, u0, v0, dt);
     project(n, u, v, u0, v0);
-#pragma omp barrier
 }

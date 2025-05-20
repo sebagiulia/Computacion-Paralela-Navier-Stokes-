@@ -16,10 +16,9 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <omp.h>
 #include <GL/glut.h>
-
 #include "indices.h"
+
 #include "solver.h"
 #include "timing.h"
 
@@ -284,24 +283,14 @@ static void idle_func ( void )
 	start_t = wtime();
 	react ( dens_prev, u_prev, v_prev );
 	react_ns_p_cell += 1.0e9 * (wtime()-start_t)/(N*N);
-#pragma omp parallel firstprivate(dens_prev, u_prev, v_prev, visc)
-{
-        int num_threads = omp_get_num_threads();
-        int block_size = N / num_threads;        // Filas por hilo
-#pragma omp for private(start_t) reduction(+:dens_ns_p_cell, vel_ns_p_cell)
-        for (int i = 0; i < num_threads; i++)
-        {
-                int pos = i * block_size * N;
-                int size = i != num_threads - 1 ? block_size : N % num_threads ;
-                start_t = wtime();
-                vel_step ( size, &u[pos], &v[pos], &u_prev[pos], &v_prev[pos], visc, dt);
-                vel_ns_p_cell += (block_size*block_size)/ (1.0e6 * (wtime()-start_t));
 
-                start_t = wtime();
-                dens_step ( size, dens, dens_prev, &u[pos], &v[pos], diff, dt);
-                dens_ns_p_cell +=(block_size*block_size)/ (1.0e6 * (wtime()-start_t));
-        }
-}
+	start_t = wtime();
+	vel_step ( N, u, v, u_prev, v_prev, visc, dt );
+	vel_ns_p_cell += 1.0e9 * (wtime()-start_t)/(N*N);
+
+	start_t = wtime();
+	dens_step ( N, dens, dens_prev, u, v, diff, dt );
+	dens_ns_p_cell += 1.0e9 * (wtime()-start_t)/(N*N);
 
 	if (1.0<wtime()-one_second) { /* at least 1s between stats */
 		printf("%lf, %lf, %lf, %lf: ns per cell total, react, vel_step, dens_step\n",
@@ -367,54 +356,53 @@ static void open_glut_window ( void )
    main --- main routine
   ----------------------------------------------------------------------
 */
-int main(int argc, char** argv)
-{
-    glutInit(&argc, argv);
 
-    if (argc != 1 && argc != 7) {
-        fprintf(stderr, "usage : %s N dt diff visc force source\n", argv[0]);
-        fprintf(stderr, "where:\n");
-        fprintf(stderr, "\t N      : grid resolution\n");
-        fprintf(stderr, "\t dt     : time step\n");
-        fprintf(stderr, "\t diff   : diffusion rate of the density\n");
-        fprintf(stderr, "\t visc   : viscosity of the fluid\n");
-        fprintf(stderr, "\t force  : scales the mouse movement that generate a force\n");
-        fprintf(stderr, "\t source : amount of density that will be deposited\n");
-        exit(1);
-    }
+int main ( int argc, char ** argv )
+{
+	glutInit ( &argc, argv );
+
+	if ( argc != 1 && argc != 6 ) {
+		fprintf ( stderr, "usage : %s N dt diff visc force source\n", argv[0] );
+		fprintf ( stderr, "where:\n" );\
+		fprintf ( stderr, "\t N      : grid resolution\n" );
+		fprintf ( stderr, "\t dt     : time step\n" );
+		fprintf ( stderr, "\t diff   : diffusion rate of the density\n" );
+		fprintf ( stderr, "\t visc   : viscosity of the fluid\n" );
+		fprintf ( stderr, "\t force  : scales the mouse movement that generate a force\n" );
+		fprintf ( stderr, "\t source : amount of density that will be deposited\n" );
+		exit ( 1 );
+	}
 
 #ifndef ND
     N = 128;
 #else
     N = ND;
 #endif
-    dt = 0.1f;
-    diff = 0.0f;
-    visc = 0.0f;
-    force = 5.0f;
-    source = 100.0f;
-    fprintf(stderr, "Using: N=%d dt=%g diff=%g visc=%g force = %g source=%g\n",
-                N, dt, diff, visc, force, source);
+		dt = 0.1f;
+		diff = 0.0f;
+		visc = 0.0f;
+		force = 5.0f;
+		source = 100.0f;
+		fprintf ( stderr, "Using defaults : N=%d dt=%g diff=%g visc=%g force = %g source=%g\n",
+			N, dt, diff, visc, force, source );
 
-    printf("\n\nHow to use this demo:\n\n");
-    printf("\t Add densities with the right mouse button\n");
-    printf("\t Add velocities with the left mouse button and dragging the mouse\n");
-    printf("\t Toggle density/velocity display with the 'v' key\n");
-    printf("\t Clear the simulation by pressing the 'c' key\n");
-    printf("\t Quit by pressing the 'q' key\n");
+	printf ( "\n\nHow to use this demo:\n\n" );
+	printf ( "\t Add densities with the right mouse button\n" );
+	printf ( "\t Add velocities with the left mouse button and dragging the mouse\n" );
+	printf ( "\t Toggle density/velocity display with the 'v' key\n" );
+	printf ( "\t Clear the simulation by pressing the 'c' key\n" );
+	printf ( "\t Quit by pressing the 'q' key\n" );
 
-    dvel = 0;
+	dvel = 0;
 
-    if (!allocate_data()) {
-        exit(1);
-    }
-    clear_data();
+	if ( !allocate_data () ) exit ( 1 );
+	clear_data ();
 
-    win_x = 512;
-    win_y = 512;
-    open_glut_window();
+	win_x = 512;
+	win_y = 512;
+	open_glut_window ();
 
-    glutMainLoop();
+	glutMainLoop ();
 
-    exit(0);
+	exit ( 0 );
 }
