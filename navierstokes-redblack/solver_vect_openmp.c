@@ -3,8 +3,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <assert.h>
-#include <omp.h> //soporte openmp
+#include <omp.h>
 #include "indices.h"
 
 #include "solver.h"
@@ -25,7 +24,6 @@ static void add_source(unsigned int n, float * x, const float * s, float dt)
 
 static void set_bnd(unsigned int n, boundary b, float * x)
 {
-    // no me mejoraba paralelizando este loop
     for (unsigned int i = 1; i <= n; i++) {
         x[IX(0, i)]     = b == VERTICAL ? -x[IX(1, i)] : x[IX(1, i)];
         x[IX(n + 1, i)] = b == VERTICAL ? -x[IX(n, i)] : x[IX(n, i)];
@@ -74,43 +72,42 @@ static void lin_solve_rb_step_vect(grid_color color,
 
 static void lin_solve(unsigned int n, boundary b, float * x, const float * x0, float a, float c)
 {
-    int tid, work_size, threads, start, end;
+    unsigned int tid, block_height, threads, from, to;
     unsigned int color_size = (n + 2) * ((n + 2) / 2);
     const float * red0 = x0;
     const float * blk0 = x0 + color_size;
     float * red = x;
     float * blk = x + color_size;
 
-    #pragma omp parallel default(shared) private(tid, work_size, start, end, threads)
+    #pragma omp parallel default(shared) private(tid, block_height, from, to, threads)
     {
         tid = omp_get_thread_num();
         threads = omp_get_max_threads();
 
-        assert (threads <= n);
         
-        work_size = n / threads;
-        start = tid * work_size;
-        end   = (tid + 1) * work_size;
+        block_height = n / threads;
+        from = tid * block_height;
+        to   = (tid + 1) * block_height;
 
         //si threads no es divisor de n, el ultimo hace un poco mas de trabajo
-        if (end + work_size > n) end = n; 
+        if (to + block_height > n) to = n; 
 
         for (unsigned int k = 0; k < 20; k++) // cada thread ejecuta el loop
         {
-            // red
-            unsigned int pos = start * ((n + 2) / 2);
-            lin_solve_rb_step_vect(RED,   end - start, n + 2, a, c, &red0[pos], &blk[pos], &red[pos]);
+            unsigned int pos = from * ((n + 2) / 2);
+            lin_solve_rb_step_vect(RED,   to - from, n + 2, a, c, &red0[pos], &blk[pos], &red[pos]);
 
             #pragma omp barrier //todos los threads se sincronizan
             
-            // black
-            lin_solve_rb_step_vect(BLACK, end - start, n + 2, a, c, &blk0[pos], &red[pos], &blk[pos]);
+            lin_solve_rb_step_vect(BLACK, to - from, n + 2, a, c, &blk0[pos], &red[pos], &blk[pos]);
 
             #pragma omp barrier //todos los threads se sincronizan
 
-            #pragma task wait  //todos los threads se sincronizan
-            set_bnd(n, b, x);
-            #pragma task taskwait
+            #pragma omp single
+            {
+                set_bnd(n, b, x);
+            }
+            #pragma omp barrier
         }
     }
 }
