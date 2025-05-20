@@ -282,15 +282,15 @@ static void idle_func ( void )
 
 	start_t = wtime();
 	react ( dens_prev, u_prev, v_prev );
-	react_ns_p_cell += 1.0e9 * (wtime()-start_t)/(N*N);
+	react_ns_p_cell += (N * N) / (1.0e6 * (wtime() - start_t));
 
 	start_t = wtime();
 	vel_step ( N, u, v, u_prev, v_prev, visc, dt );
-	vel_ns_p_cell += 1.0e9 * (wtime()-start_t)/(N*N);
+	vel_ns_p_cell += (N * N) / (1.0e6 * (wtime() - start_t));
 
 	start_t = wtime();
 	dens_step ( N, dens, dens_prev, u, v, diff, dt );
-	dens_ns_p_cell += 1.0e9 * (wtime()-start_t)/(N*N);
+	dens_ns_p_cell += (N * N) / (1.0e6 * (wtime() - start_t));
 
 	if (1.0<wtime()-one_second) { /* at least 1s between stats */
 		printf("%lf, %lf, %lf, %lf: ns per cell total, react, vel_step, dens_step\n",
