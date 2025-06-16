@@ -12,7 +12,7 @@ SHOW=false
 
 
 ifeq ($(CC), icc)
-	CFLAGS += -diag-disable=10441 
+	CFLAGS += -diag-disable=10441
 endif
 
 ifeq ($(O), 1)
@@ -29,10 +29,14 @@ else ifeq ($(O), 6)
 	CFLAGS += -O3 -ffast-math -fopenmp
 endif
 
+
+
 ifeq ($(SOLVER), 2)
 	SOLVERFILE=solver_vect.o
 else ifeq ($(SOLVER), 3)
 	SOLVERFILE=solver_vect_openmp.o
+else ifeq ($(SOLVER), GPU)
+	SOLVERFILE=solver_gpu.o
 endif	
 
 ifeq ($(SHOW), true)
@@ -52,9 +56,14 @@ headless: headless.o $(COMMON_OBJECTS)
 clean:
 	rm -f $(TARGETS) *.o *.i *.s *.bc .depend *~
 
+ifeq ($(SOLVER), GPU)
+.depend: *.[ch]
+	nvcc -Xptxas -v -c solver_gpu.cu
+	$(CC) -MM $(SOURCES) >.depend
+else
 .depend: *.[ch]
 	$(CC) -MM $(SOURCES) >.depend
-
+endif
 -include .depend
 
 .PHONY: clean all
