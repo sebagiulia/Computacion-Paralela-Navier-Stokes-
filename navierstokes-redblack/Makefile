@@ -25,6 +25,8 @@ else ifeq ($(O), 4)
 	CFLAGS += -O3 -ffast-math -march=native -ftree-vectorize -funsafe-math-optimizations
 else ifeq ($(O), 5)
 	CFLAGS += -O3 -ffast-math -march=native -ftree-vectorize -funsafe-math-optimizations -fopenmp
+else ifeq ($(O), 6)
+	CFLAGS += -O3 -ffast-math -fopenmp
 endif
 
 ifeq ($(SOLVER), 2)
