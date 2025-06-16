@@ -182,12 +182,7 @@ static void react ( float * d_d, float * d_u, float * d_v )
 
 static void one_step ( void )
 {
-	static int times = 1;
-	static double start_t = 0.0;
-	static double one_second = 0.0;
-	static double react_ns_p_cell = 0.0;
-	static double vel_ns_p_cell = 0.0;
-	static double dens_ns_p_cell = 0.0;
+
 	static int size = (N+2)*(N+2);
 	cudaError_t err_u         = cudaMemcpy(u, hu, size, cudaMemcpyHostToDevice);
 	cudaError_t err_v         = cudaMemcpy(v, hv, size, cudaMemcpyHostToDevice);
@@ -206,32 +201,63 @@ static void one_step ( void )
 	    fprintf(stderr, "Error al copiar memoria de host a device");
 	    return;
 	}
+	static int times = 1;
+        static double react_ns_p_cell = 0.0;
+        static double vel_ns_p_cell = 0.0;
+        static double dens_ns_p_cell = 0.0;
+        static float  milliseconds;
+        static cudaEvent_t start = nullptr, stop = nullptr, current = nullptr, one_second = nullptr;
+        if (one_second == nullptr)
+        {
+            cudaEventCreate(&one_second);
+            cudaEventRecord(one_second);
+	    cudaEventCreate(&start);
+	    cudaEventCreate(&stop);
+	    cudaEventCreate(&current);
+        }
 
-	start_t = wtime();
-	react ( dens_prev, u_prev, v_prev );
-	react_ns_p_cell += (N * N) / (1.0e6 * (wtime() - start_t));
+        cudaEventRecord(start);
+        react ( dens_prev, u_prev, v_prev );
+        cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
+        cudaEventElapsedTime(&milliseconds, start, stop);
+        react_ns_p_cell += (N * N) / (1.0e3 * milliseconds);
 
-	start_t = wtime();
-	vel_step ( N, u, v, u_prev, v_prev, visc, dt );
-	vel_ns_p_cell += (N * N) / (1.0e6 * (wtime() - start_t));
+        cudaEventRecord(start);
+        vel_step ( N, u, v, u_prev, v_prev, visc, dt );
+        cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
+        cudaEventElapsedTime(&milliseconds, start, stop);
+        vel_ns_p_cell += (N * N) / (1.0e3 * milliseconds);
 
-	start_t = wtime();
-	dens_step ( N, dens, dens_prev, u, v, diff, dt );
-	dens_ns_p_cell += (N * N) / (1.0e6 * (wtime() - start_t));
+        cudaEventRecord(start);
+        dens_step ( N, dens, dens_prev, u, v, diff, dt );
+        cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
+        cudaEventElapsedTime(&milliseconds, start, stop);
+        dens_ns_p_cell += (N * N) / (1.0e3 * milliseconds);
 
-	if (1.0<wtime()-one_second) { /* at least 1s between stats */
-		printf("%lf, %lf, %lf, %lf: ns per cell total, react, vel_step, dens_step\n",
-			(react_ns_p_cell+vel_ns_p_cell+dens_ns_p_cell)/times,
-			react_ns_p_cell/times, vel_ns_p_cell/times, dens_ns_p_cell/times);
-		one_second = wtime();
-		react_ns_p_cell = 0.0;
-		vel_ns_p_cell = 0.0;
-		dens_ns_p_cell = 0.0;
-		times = 1;
-	} else {
-		times++;
+        cudaEventRecord(current);
+	cudaEventSynchronize(current);
+        cudaError_t salida = cudaEventElapsedTime(&milliseconds, one_second, current);
+        if (salida == cudaErrorInvalidValue)
+	{
+		printf("Error al obtener tiempo entre current y one second\n");
+		return;
 	}
-
+	if (1000.0f <= milliseconds) { /* at least 1s between stats */
+                printf("%lf, %lf, %lf, %lf: ns per cell total, react, vel_step, dens_step\n",
+                        (react_ns_p_cell+vel_ns_p_cell+dens_ns_p_cell)/times,
+                        react_ns_p_cell/times, vel_ns_p_cell/times, dens_ns_p_cell/times);
+                cudaEventRecord(one_second);
+                react_ns_p_cell = 0.0;
+                vel_ns_p_cell = 0.0;
+                dens_ns_p_cell = 0.0;
+                times = 1;
+        } else {
+                times++;
+        }
+	
 }
 
 

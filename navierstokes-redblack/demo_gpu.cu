@@ -274,29 +274,46 @@ static void reshape_func ( int width, int height )
 static void idle_func ( void )
 {
 	static int times = 1;
-	static double start_t = 0.0;
-	static double one_second = 0.0;
 	static double react_ns_p_cell = 0.0;
 	static double vel_ns_p_cell = 0.0;
 	static double dens_ns_p_cell = 0.0;
+	static float  milliseconds;
+	static cudaEvent_t start, stop, current;
+	static cudaEvent_t one_second = (cudaEvent_t)0;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+	cudaEventCreate(&current);
+	if (one_second == (cudaEvent_t)0)
+	{
+	    cudaEventCreate(&one_second);
+	    cudaEventRecord(one_second);
+	}
+        	
+	cudaEventRecord(start);
+	react ( dens_prev, u_prev, v_prev );	
+	cudaEventRecord(stop);
+	cudaEventElapsedTime(&milliseconds, start, stop);
+	react_ns_p_cell += (N * N) / (1.0e6 * milliseconds);
 
-	start_t = wtime();
-	react ( dens_prev, u_prev, v_prev );
-	react_ns_p_cell += (N * N) / (1.0e6 * (wtime() - start_t));
-
-	start_t = wtime();
+	cudaEventRecord(start);
 	vel_step ( N, u, v, u_prev, v_prev, visc, dt );
-	vel_ns_p_cell += (N * N) / (1.0e6 * (wtime() - start_t));
+	cudaEventRecord(stop);
+	cudaEventElapsedTime(&milliseconds, start, stop);
+	vel_ns_p_cell += (N * N) / (1.0e6 * milliseconds);
 
-	start_t = wtime();
+	cudaEventRecord(start);
 	dens_step ( N, dens, dens_prev, u, v, diff, dt );
-	dens_ns_p_cell += (N * N) / (1.0e6 * (wtime() - start_t));
+	cudaEventRecord(stop);
+	cudaEventElapsedTime(&milliseconds, start, stop);
+	dens_ns_p_cell += (N * N) / (1.0e6 * milliseconds);
 
-	if (1.0<wtime()-one_second) { /* at least 1s between stats */
+	cudaEventRecord(current);
+	cudaEventElapsedTime(&milliseconds, start, stop);
+	if (1000.0 < milliseconds) { /* at least 1s between stats */
 		printf("%lf, %lf, %lf, %lf: ns per cell total, react, vel_step, dens_step\n",
 			(react_ns_p_cell+vel_ns_p_cell+dens_ns_p_cell)/times,
-			react_ns_p_cell/times, vel_ns_p_cell/times, dens_ns_p_cell/times);
-		one_second = wtime();
+			react_ns_p_cell/times, vel_ns_p_cell/times, dens_ns_p_cell/times);	
+		cudaEventRecord(one_second);
 		react_ns_p_cell = 0.0;
 		vel_ns_p_cell = 0.0;
 		dens_ns_p_cell = 0.0;

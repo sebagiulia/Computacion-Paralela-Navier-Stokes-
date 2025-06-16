@@ -5,6 +5,7 @@ CFLAGS=-std=c11 -Wall -Wextra -Wno-unused-parameter -DND=$(EXP) -save-temps
 LDFLAGS=
 TARGETS=demo headless
 SOURCES=$(shell echo *.c)
+SOURCESCU=$(shell echo *.cu)
 SOLVER=1
 SOLVERFILE=solver.o
 SHOW=false
@@ -13,6 +14,9 @@ SHOW=false
 
 ifeq ($(CC), icc)
 	CFLAGS += -diag-disable=10441
+else ifeq ($(CC), nvcc)
+	CFLAGS = -std=c++11 -Xptxas -v -DND=$(EXP)
+	SOLVERFILE = solver_gpu.o
 endif
 
 ifeq ($(O), 1)
@@ -35,8 +39,6 @@ ifeq ($(SOLVER), 2)
 	SOLVERFILE=solver_vect.o
 else ifeq ($(SOLVER), 3)
 	SOLVERFILE=solver_vect_openmp.o
-else ifeq ($(SOLVER), GPU)
-	SOLVERFILE=solver_gpu.o
 endif	
 
 ifeq ($(SHOW), true)
@@ -47,19 +49,30 @@ COMMON_OBJECTS=$(SOLVERFILE) timing.o
 
 all: $(TARGETS) 
 
+
+ifeq ($(CC), nvcc)
+demo: demo_gpu.o $(COMMON_OBJECTS)
+	$(CC) $(CFLAGS) $^ -o demo $(LDFLAGS) -lGL -lGLU -lglut
+
+headless: headless_gpu.o $(COMMON_OBJECTS)
+	$(CC) $(CFLAGS) $^ -o headless $(LDFLAGS)
+else
 demo: demo.o $(COMMON_OBJECTS)
 	$(CC) $(CFLAGS) $^ -o demo $(LDFLAGS) -lGL -lGLU -lglut
 
 headless: headless.o $(COMMON_OBJECTS)
 	$(CC) $(CFLAGS) $^ -o headless $(LDFLAGS)
+endif
+
+%.o: %.cu
+	nvcc $(CFLAGS) -c $< -o $@
 
 clean:
 	rm -f $(TARGETS) *.o *.i *.s *.bc .depend *~
 
-ifeq ($(SOLVER), GPU)
+ifeq ($(CC), nvcc)
 .depend: *.[ch]
-	nvcc -Xptxas -v -c solver_gpu.cu
-	$(CC) -MM $(SOURCES) >.depend
+	$(CC) -MM $(SOURCESCU) >.depend
 else
 .depend: *.[ch]
 	$(CC) -MM $(SOURCES) >.depend
