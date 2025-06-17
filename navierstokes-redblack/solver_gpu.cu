@@ -64,7 +64,10 @@ static void set_bnd(unsigned int n, boundary b, float * x)
     cudaDeviceSynchronize(); // espero a que los kernels terminen
 }  
 
-__global__ static void lin_solve_rb_step(grid_color color,
+__device__ static void lin_solve_rb_step(
+			      uint x_aux,
+			      uint y_aux,
+		              grid_color color,
                               unsigned int n,
                               float a,
                               float c,
@@ -72,22 +75,20 @@ __global__ static void lin_solve_rb_step(grid_color color,
                               const float * __restrict__ neigh,
                               float * __restrict__ same)
 {
-    
-    unsigned width = (n + 2) / 2;
-    size_t x_aux = blockIdx.x * blockDim.x + threadIdx.x; 
-    size_t y_aux = blockIdx.y * blockDim.y + threadIdx.y; 
-           
-    unsigned gid = x_aux + y_aux * width; 
-    int shift_color = color == RED ? 1 : -1;
-    int shift_gid   = gid % 2 == 0 ? 1 : -1;
-    int shift       = shift_color * shift_gid;
-    unsigned int start = color == RED ? gid % 2 : (1 - (gid % 2));
-    
-    int x = x_aux + start;
-    int y = y_aux + 1;
-    if(x  >= width - (1 - start) || y > n)
-	return;
-   unsigned index = x + y * width;
+	    unsigned width = (n+2) / 2;
+	    unsigned gid = x_aux + y_aux * width; 
+	
+	
+    	    int shift_color = color == RED ? 1 : -1;
+   	    int shift_gid   = gid % 2 == 0 ? 1 : -1;
+            int shift       = shift_color * shift_gid;
+   	    unsigned int start = color == RED ? gid % 2 : (1 - (gid % 2));
+
+   	    int x = x_aux + start;
+   	    int y = y_aux + 1;
+	    if(x  >= width - (1 - start) || y > n)
+	 	return;
+  	    unsigned index = x + y * width;
     //for (unsigned int y = 1; y <= n; ++y, shift = -shift, start = 1 - start) {
         //for (unsigned int x = start; x < width - (1 - start); ++x) {
             same[index] = (same0[index] + a * (neigh[index - width] +
@@ -96,6 +97,22 @@ __global__ static void lin_solve_rb_step(grid_color color,
                                                neigh[index + width])) / c;
         //}
     //}
+}
+
+__global__ static void lin_solve_kernel(unsigned int n,
+                              float a,
+                              float c,
+                              const float * __restrict__ red0,
+			      const float * __restrict__ blk0,
+			      float * __restrict__ red,
+                              float * __restrict__ blk) {
+
+   	size_t x_aux = blockIdx.x * blockDim.x + threadIdx.x; 
+   	size_t y_aux = blockIdx.y * blockDim.y + threadIdx.y; 
+           
+	lin_solve_rb_step(x_aux, y_aux, RED, n, a, c, red0, blk, red);
+	__syncthreads();
+	lin_solve_rb_step(x_aux, y_aux, BLACK, n, a, c, blk0, red, blk);
 }
 
 
@@ -115,8 +132,7 @@ static void lin_solve(unsigned int n, boundary b,
     float * blk = x + color_size;
     for (unsigned int k = 0; k < 20; ++k) {
         
-	lin_solve_rb_step<<<grid, block>>>(RED,   n, a, c, red0, blk, red);
-	lin_solve_rb_step<<<grid, block>>>(BLACK, n, a, c, blk0, red, blk);
+	lin_solve_kernel<<<grid, block>>>(n, a, c, red0, blk0, red, blk);
 	cudaDeviceSynchronize();
 
 	set_bnd(n, b, x);

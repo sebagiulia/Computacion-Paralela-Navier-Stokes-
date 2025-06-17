@@ -84,6 +84,29 @@ static void clear_data ( void )
 	for ( i=0 ; i<size ; i++ ) {
 		hu[i] = hv[i] = hu_prev[i] = hv_prev[i] = hdens[i] = hdens_prev[i] = 0.0f;
 	}
+        cudaError_t err_u         = cudaMemcpy(u, hu, size * sizeof(float), cudaMemcpyHostToDevice);
+	cudaError_t err_v         = cudaMemcpy(v, hv, size * sizeof(float), cudaMemcpyHostToDevice);
+	cudaError_t err_d         = cudaMemcpy(dens, hdens, size * sizeof(float), cudaMemcpyHostToDevice);
+	if (err_u != cudaSuccess ||
+	    err_v != cudaSuccess ||
+	    err_d != cudaSuccess
+ )
+	{
+	    fprintf(stderr, "Error al copiar memoria de device a host\n");
+	    return;
+	}
+	err_u         = cudaMemcpy(u_prev, hu_prev, size * sizeof(float), cudaMemcpyHostToDevice);
+	err_v         = cudaMemcpy(v_prev, hv_prev, size * sizeof(float), cudaMemcpyHostToDevice);
+	err_d         = cudaMemcpy(dens_prev, hdens_prev, size * sizeof(float), cudaMemcpyHostToDevice);
+	if (err_u != cudaSuccess ||
+	    err_v != cudaSuccess ||
+	    err_d != cudaSuccess
+ )
+	{
+	    fprintf(stderr, "Error al copiar memoria de device a host\n");
+	    return;
+	}
+
 }
 
 static int allocate_data ( void )
