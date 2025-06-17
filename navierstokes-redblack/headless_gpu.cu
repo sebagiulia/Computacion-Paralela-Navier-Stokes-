@@ -69,6 +69,28 @@ static void clear_data ( void )
 	for ( i=0 ; i<size ; i++ ) {
 		hu[i] = hv[i] = hu_prev[i] = hv_prev[i] = hdens[i] = hdens_prev[i] = 0.0f;
 	}
+        cudaError_t err_u         = cudaMemcpy(u, hu, size * sizeof(float), cudaMemcpyHostToDevice);
+        cudaError_t err_v         = cudaMemcpy(v, hv, size * sizeof(float), cudaMemcpyHostToDevice);
+        cudaError_t err_d         = cudaMemcpy(dens, hdens, size * sizeof(float), cudaMemcpyHostToDevice);
+        if (err_u != cudaSuccess ||
+            err_v != cudaSuccess ||
+            err_d != cudaSuccess
+ )
+        {
+            fprintf(stderr, "Error al copiar memoria de device a host\n");
+            return;
+        }
+        err_u         = cudaMemcpy(u_prev, hu_prev, size * sizeof(float), cudaMemcpyHostToDevice);
+        err_v         = cudaMemcpy(v_prev, hv_prev, size * sizeof(float), cudaMemcpyHostToDevice);
+        err_d         = cudaMemcpy(dens_prev, hdens_prev, size * sizeof(float), cudaMemcpyHostToDevice);
+        if (err_u != cudaSuccess ||
+            err_v != cudaSuccess ||
+            err_d != cudaSuccess
+ )
+        {
+            fprintf(stderr, "Error al copiar memoria de device a host\n");
+            return;
+        }
 }
 
 static int allocate_data ( void )
@@ -184,23 +206,6 @@ static void one_step ( void )
 {
 
 	static int size = (N+2)*(N+2);
-	cudaError_t err_u         = cudaMemcpy(u, hu, size, cudaMemcpyHostToDevice);
-	cudaError_t err_v         = cudaMemcpy(v, hv, size, cudaMemcpyHostToDevice);
-	cudaError_t err_dens      = cudaMemcpy(dens, hdens, size, cudaMemcpyHostToDevice);
-	cudaError_t err_u_prev    = cudaMemcpy(u_prev, hu_prev, size, cudaMemcpyHostToDevice);
-	cudaError_t err_v_prev    = cudaMemcpy(v_prev, hv_prev, size, cudaMemcpyHostToDevice);
-	cudaError_t err_dens_prev = cudaMemcpy(dens_prev, hdens_prev, size, cudaMemcpyHostToDevice);
-
-	if (err_u != cudaSuccess ||
-	    err_v != cudaSuccess ||
-	    err_dens != cudaSuccess ||
-	    err_u_prev != cudaSuccess ||
-	    err_v_prev != cudaSuccess ||
-	    err_dens_prev != cudaSuccess)
-	{
-	    fprintf(stderr, "Error al copiar memoria de host a device");
-	    return;
-	}
 	static int times = 1;
         static double react_ns_p_cell = 0.0;
         static double vel_ns_p_cell = 0.0;
@@ -242,7 +247,7 @@ static void one_step ( void )
         cudaError_t salida = cudaEventElapsedTime(&milliseconds, one_second, current);
         if (salida == cudaErrorInvalidValue)
 	{
-		printf("Error al obtener tiempo entre current y one second\n");
+		fprintf(stderr, "Error al obtener tiempo entre current y one second\n");
 		return;
 	}
 	if (1000.0f <= milliseconds) { /* at least 1s between stats */
