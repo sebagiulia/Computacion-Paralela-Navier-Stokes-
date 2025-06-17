@@ -4,6 +4,10 @@
 #include "solver.h"
 
 #define SWAP(x0,x) {float * tmp=x0;x0=x;x=tmp;}
+#define DIV_CEIL(n, m) ((n) + (m) -1) / (m)
+
+#define BLOCK_WIDTH 32
+#define BLOCK_HEIGHT 16
 
 typedef enum { NONE = 0, VERTICAL = 1, HORIZONTAL = 2 } boundary;
 typedef enum { RED, BLACK } grid_color;
@@ -16,14 +20,24 @@ __device__ static inline size_t rb_idx(size_t x, size_t y, size_t dim) {
     return base + offset;
 }
 
-__global__ static void add_source(unsigned int n, float * x, const float * s, float dt)
+
+__global__ static void add_source_kernel(unsigned int n, float * x, const float * s, float dt)
 {
-    size_t i = blockIdx.x * blockDim.x + threadIdx.x; 
-    x[i] += dt * s[i];
+    uint i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < (n+2) * (n+2)){
+        x[i] += dt * s[i];
+    }
 }
 
+static void add_source(uint n, float * x, const float * s, float dt)
+{    
+    uint block_size = 128;
+    uint num_blocks = ((n + 2) * (n + 2) + block_size - 1) / block_size; 
+    add_source_kernel<<<num_blocks, block_size>>>(n, x, s, dt);
+    cudaDeviceSynchronize();
+}
 
-__device__ static void set_bnd(unsigned int n, boundary b, float * x)
+__global__ static void set_bnd(unsigned int n, boundary b, float * x)
 {
     for (unsigned int i = 1; i <= n; i++) {
         x[IX(0, i)]     = b == VERTICAL ? -x[IX(1, i)] : x[IX(1, i)];
@@ -37,7 +51,7 @@ __device__ static void set_bnd(unsigned int n, boundary b, float * x)
     x[IX(n + 1, n + 1)] = 0.5f * (x[IX(n, n + 1)] + x[IX(n + 1, n)]);
 }
 
-__device__ static void lin_solve_rb_step(grid_color color,
+__global__ static void lin_solve_rb_step(grid_color color,
                               unsigned int n,
                               float a,
                               float c,
@@ -45,15 +59,22 @@ __device__ static void lin_solve_rb_step(grid_color color,
                               const float * __restrict__ neigh,
                               float * __restrict__ same)
 {
-    size_t gid = blockIdx.x * blockDim.x + threadIdx.x; 
     
+    unsigned width = (n + 2) / 2;
+    size_t x_aux = blockIdx.x * blockDim.x + threadIdx.x; 
+    size_t y_aux = blockIdx.y * blockDim.y + threadIdx.y; 
+           
+    unsigned gid = x_aux + y_aux * width; 
     int shift_color = color == RED ? 1 : -1;
     int shift_gid   = gid % 2 == 0 ? 1 : -1;
     int shift       = shift_color * shift_gid;
-
     unsigned int start = color == RED ? gid % 2 : (1 - (gid % 2));
-    unsigned int width = (n + 2) / 2;
-    unsigned int index = gid + width;
+    
+    int x = x_aux + start;
+    int y = y_aux + 1;
+    if(x  >= width - (1 - start) || y > n)
+	return;
+   unsigned index = x + y * width;
     //for (unsigned int y = 1; y <= n; ++y, shift = -shift, start = 1 - start) {
         //for (unsigned int x = start; x < width - (1 - start); ++x) {
             same[index] = (same0[index] + a * (neigh[index - width] +
@@ -64,39 +85,40 @@ __device__ static void lin_solve_rb_step(grid_color color,
     //}
 }
 
-__global__ static void lin_solve(unsigned int n, boundary b,
+
+static void lin_solve(unsigned int n, boundary b,
                       float * __restrict__ x,
                       const float * __restrict__ x0,
                       float a, float c)
 {
-    size_t gid = blockIdx.x * blockDim.x + threadIdx.x; 
-    
+    int width = (n + 2) / 2;	
+    dim3 block(BLOCK_WIDTH, BLOCK_HEIGHT);
+    dim3 grid(DIV_CEIL(width, block.x), DIV_CEIL(n, block.y));
+
     unsigned int color_size = (n + 2) * ((n + 2) / 2);
     const float * red0 = x0;
     const float * blk0 = x0 + color_size;
     float * red = x;
     float * blk = x + color_size;
     for (unsigned int k = 0; k < 20; ++k) {
-        lin_solve_rb_step(RED,   n, a, c, red0, blk, red);
-        __syncthreads();
-        lin_solve_rb_step(BLACK, n, a, c, blk0, red, blk);
+        
+	lin_solve_rb_step<<<grid, block>>>(RED,   n, a, c, red0, blk, red);
+	lin_solve_rb_step<<<grid, block>>>(BLACK, n, a, c, blk0, red, blk);
+	cudaDeviceSynchronize();
+
+	set_bnd<<<1,1>>>(n, b, x);
 	
-	if (gid == 0)
-	    set_bnd(n, b, x);
-	
-	__syncthreads();
     }
 }
 
 
+
+
 static void diffuse(unsigned int n, boundary b, float * x, const float * x0, float diff, float dt)
 {
-	float a = dt * diff * n * n;
-	unsigned int block_size = 128;
-	unsigned int active_cells = n * (n / 2);
-	unsigned int num_blocks = (active_cells + block_size - 1) / block_size;
 
-	lin_solve<<<num_blocks, block_size>>>(n, b, x, x0, a, 1 + 4 * a);
+	float a = dt * diff * n * n;
+	lin_solve(n, b, x, x0, a, 1 + 4 * a);
 }
 
 __global__ static void advect_kernel(unsigned int n, boundary b, float * d, const float * d0, const float * u, const float * v, float dt)
@@ -104,9 +126,12 @@ __global__ static void advect_kernel(unsigned int n, boundary b, float * d, cons
     int i0, i1, j0, j1, i, j;
     float x, y, s0, t0, s1, t1;
     float dt0 = dt * n;
-    size_t gid = blockIdx.x * blockDim.x + threadIdx.x; 
-    i = (gid / n) + 1; 
-    j = (gid % n) + 1;
+    size_t xid = blockIdx.x * blockDim.x + threadIdx.x; 
+    size_t yid = blockIdx.y * blockDim.y + threadIdx.y;
+
+    i = xid + 1; 
+    j = yid + 1;
+    if(i > n || j > n) return;
     x = i - dt0 * u[IX(i,j)];
     y = j - dt0 * v[IX(i,j)];
     if (x < 0.5f) {
@@ -129,65 +154,69 @@ __global__ static void advect_kernel(unsigned int n, boundary b, float * d, cons
     t0 = 1 - t1;
     d[IX(i,j)] = s0 * (t0 * d0[IX(i0, j0)] + t1 * d0[IX(i0, j1)]) +
 		 s1 * (t0 * d0[IX(i1, j0)] + t1 * d0[IX(i1, j1)]);
-    __syncthreads();
-    if (gid == 0)
-    	set_bnd(n, b, d);
 }
 
 static void advect(unsigned int n, boundary b, float * d, const float * d0, const float * u, const float * v, float dt)
 {
-    unsigned int block_size = 128;
-    unsigned int num_blocks = n * n / block_size;
-    advect_kernel<<<num_blocks,block_size>>>(n,b,d,d0,u,v,dt);
+    dim3 block(BLOCK_WIDTH, BLOCK_HEIGHT);
+    dim3 grid(DIV_CEIL(n, block.x), DIV_CEIL(n, block.y));
+
+    advect_kernel<<<grid,block>>>(n,b,d,d0,u,v,dt);
+    cudaDeviceSynchronize();
+
+    set_bnd<<<1,1>>>(n, b, d);
 }
 
 __global__ static void project_kernel1(unsigned int n, float *u, float *v, float *p, float *div)
 {
-    size_t gid = blockIdx.x * blockDim.x + threadIdx.x; 
-    unsigned int i = (gid / n) + 1; 
-    unsigned int j = (gid % n) + 1;
+    size_t xid = blockIdx.x * blockDim.x + threadIdx.x; 
+    size_t yid = blockIdx.y * blockDim.y + threadIdx.y;
+
+    unsigned int i = xid + 1; 
+    unsigned int j = yid + 1;
+    if(i > n || j > n) return;
     div[IX(i, j)] = -0.5f * (u[IX(i + 1, j)] - u[IX(i - 1, j)] +
 			     v[IX(i, j + 1)] - v[IX(i, j - 1)]) / n;
     p[IX(i, j)] = 0;
-    __syncthreads();
-    if (gid == 0)
-    {
-        set_bnd(n, NONE, div);
-        set_bnd(n, NONE, p);
-    }
 }
 
 
 __global__ static void project_kernel2(unsigned int n, float *u, float *v, float *p, float *div)
 {
-    size_t gid = blockIdx.x * blockDim.x + threadIdx.x; 
-    unsigned int i = (gid / n) + 1; 
-    unsigned int j = (gid % n) + 1;
+    
+   size_t xid = blockIdx.x * blockDim.x + threadIdx.x; 
+    size_t yid = blockIdx.y * blockDim.y + threadIdx.y;
+
+    unsigned int i = xid + 1; 
+    unsigned int j = yid + 1;
+    if(i > n || j > n) return; 
     u[IX(i, j)] -= 0.5f * n * (p[IX(i + 1, j)] - p[IX(i - 1, j)]);
     v[IX(i, j)] -= 0.5f * n * (p[IX(i, j + 1)] - p[IX(i, j - 1)]);
-    __syncthreads();
-    if (gid == 0)
-    {
-	set_bnd(n, VERTICAL, u);
-	set_bnd(n, HORIZONTAL, v);
-    }
 }
 
 static void project(unsigned int n, float *u, float *v, float *p, float *div)
 {
-    unsigned int block_size = 128;
-    unsigned int num_blocks = (n + 2) * ((n + 2) / 2) / block_size;
-    unsigned int num_blocks_p = n * n / block_size;
-    project_kernel1<<<num_blocks_p,block_size>>>(n, u, v, p, div);
-    lin_solve<<<num_blocks,block_size>>>(n, NONE, p, div, 1, 4);
-    project_kernel2<<<num_blocks_p,block_size>>>(n, u, v, p, div);
+    dim3 block(BLOCK_WIDTH, BLOCK_HEIGHT);
+    dim3 grid(DIV_CEIL(n, block.x), DIV_CEIL(n, block.y));
+
+    project_kernel1<<<grid,block>>>(n, u, v, p, div);
+    cudaDeviceSynchronize();
+
+    set_bnd<<<1,1>>>(n, NONE, div);
+    set_bnd<<<1,1>>>(n, NONE, p);
+    
+    lin_solve(n, NONE, p, div, 1, 4);
+    
+    project_kernel2<<<grid,block>>>(n, u, v, p, div);
+    cudaDeviceSynchronize();
+
+    set_bnd<<<1,1>>>(n, VERTICAL, u);
+    set_bnd<<<1,1>>>(n, HORIZONTAL, v);
 }
 
 void dens_step(unsigned int n, float *x, float *x0, float *u, float *v, float diff, float dt)
-{
-    unsigned int block_size = 128;
-    unsigned int num_blocks = n * n / block_size;
-    add_source<<<num_blocks,block_size>>>(n, x, x0, dt);
+{ 
+    add_source(n, x, x0, dt);
     SWAP(x0, x);
     diffuse(n, NONE, x, x0, diff, dt);
     SWAP(x0, x);
@@ -196,10 +225,8 @@ void dens_step(unsigned int n, float *x, float *x0, float *u, float *v, float di
 
 void vel_step(unsigned int n, float *u, float *v, float *u0, float *v0, float visc, float dt)
 {
-    unsigned int block_size = 128;
-    unsigned int num_blocks = n * n / block_size;
-    add_source<<<num_blocks,block_size>>>(n, u, u0, dt);
-    add_source<<<num_blocks,block_size>>>(n, v, v0, dt);
+    add_source(n, u, u0, dt);
+    add_source(n, v, v0, dt);
     SWAP(u0, u);
     diffuse(n, VERTICAL, u, u0, visc, dt);
     SWAP(v0, v);

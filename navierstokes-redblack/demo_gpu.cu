@@ -17,16 +17,25 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <GL/glut.h>
-#include "indices.h"
 #include <cuda_runtime.h>
 #include <cub/cub.cuh>
 
 #include "solver.h"
 #include "timing.h"
+#include "indices.h"
+
 
 /* macros */
-
+#define BLOCK_WIDTH 32
+#define IXCUDA(x,y) (rbcuda_idx((x),(y),(n+2)))
 #define IX(x,y) (rb_idx((x),(y),(N+2)))
+
+__device__ static inline size_t rbcuda_idx(size_t x, size_t y, size_t dim) {
+    size_t base = ((x % 2) ^ (y % 2)) * dim * (dim / 2);
+    size_t offset = (x / 2) + y * (dim / 2);
+    return base + offset;
+}
+
 
 /* global variables */
 
@@ -113,15 +122,6 @@ static int allocate_data ( void )
 	return ( 1 );
 }
 
-__global__ void compute_velocity2(const float* u, const float* v, float* velocity2, int size) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < size) {
-        float ui = u[i];
-        float vi = v[i];
-        velocity2[i] = ui * ui + vi * vi;
-    }
-}
-
 
 /*
   ----------------------------------------------------------------------
@@ -204,11 +204,61 @@ static void draw_density ( void )
   ----------------------------------------------------------------------
 */
 
+__global__ static void init_u_v_d(unsigned int n, float * d_d, float * d_u, float * d_v, 
+                                  float max_velocity2, float max_density, 
+                                  float force, float source, 
+                                  int mouse_down0, int mouse_down2, 
+                                  int mx, int my, int omx, int omy,
+                                  int win_x, int win_y) {
+    // un solo hilo inicializa u, v, d
+    uint x = blockIdx.x * blockDim.x + threadIdx.x;
+    if (x == 0){
+	    if (max_velocity2<0.0000005f) {
+		    d_u[IXCUDA(n/2, n/2)] = force * 10.0f;
+
+		    d_v[IXCUDA(n/2, n/2)] = force * 10.0f;
+	    }
+	    if (max_density<1.0f) {
+		    d_d[IXCUDA(n/2, n/2)] = source * 10.0f;
+	    }
+    
+        if ( !mouse_down0 && !mouse_down2 ) return;
+
+	    int i = (int)((       mx /(float)win_x)*n+1);
+	    int j = (int)(((win_y-my)/(float)win_y)*n+1);
+
+	    if ( i<1 || i>n || j<1 || j>n ) return;
+
+	    if ( mouse_down0 ) {
+		    d_u[IXCUDA(i,j)] = force * (mx-omx);
+		    d_v[IXCUDA(i,j)] = force * (omy-my);
+	    }
+
+	    if ( mouse_down2 ) {
+		    d_d[IXCUDA(i,j)] = source;
+	    }
+    }
+}
 
 
+__global__ void compute_velocity2(const float* u, const float* v, float* velocity2, int size) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        float ui = u[i];
+        float vi = v[i];
+        velocity2[i] = ui * ui + vi * vi;
+    }
+}
 
-
-
+void update_omx_omy() {
+    // modifico omx, omy en el host
+    if ( !mouse_down[0] && !mouse_down[2] ) return;
+    int i = (int)((       mx /(float)win_x)*N+1);
+    int j = (int)(((win_y-my)/(float)win_y)*N+1);
+	if ( i<1 || i>N || j<1 || j>N ) return;
+    omx = mx;
+    omy = my;
+}
 
 static void react ( float * d_d, float * d_u, float * d_v )
 {
@@ -253,17 +303,14 @@ static void react ( float * d_d, float * d_u, float * d_v )
     cudaMemset(d_v, 0, size * sizeof(float));
     cudaMemset(d_d, 0, size * sizeof(float));
 
-    // --- 5. Aplicar condiciones si hace falta
-    int center = IX(N/2, N/2); 
-    if (max_velocity2 < 0.0000005f) {
-        float force_val = force * 10.0f;
-        cudaMemcpy(&d_u[center], &force_val, sizeof(float), cudaMemcpyHostToDevice);
-        cudaMemcpy(&d_v[center], &force_val, sizeof(float), cudaMemcpyHostToDevice);
-    }
-    if (max_density < 1.0f) {
-        float source_val = source * 10.0f;
-        cudaMemcpy(&d_d[center], &source_val, sizeof(float), cudaMemcpyHostToDevice);
-    }
+
+    init_u_v_d<<<dim3(1), dim3(BLOCK_WIDTH)>>>(N, d_d, d_u, d_v, max_velocity2, max_density, 
+                                               force, source, mouse_down[0], mouse_down[2], 
+                                               mx, my, omx, omy, win_x, win_y);
+
+
+    cudaDeviceSynchronize();
+    update_omx_omy();
 
     // --- Cleanup
     cudaFree(d_velocity2);
@@ -305,7 +352,7 @@ static void key_func ( unsigned char key, int x, int y )
 static void mouse_func ( int button, int state, int x, int y )
 {
 	omx = mx = x;
-	omx = my = y;
+	omy = my = y;
 
 	mouse_down[button] = state == GLUT_DOWN;
 }
@@ -328,12 +375,12 @@ static void reshape_func ( int width, int height )
 static void idle_func ( void )
 {
 static int size = (N+2)*(N+2);
-	cudaError_t err_u         = cudaMemcpy(u, hu, size, cudaMemcpyHostToDevice);
-	cudaError_t err_v         = cudaMemcpy(v, hv, size, cudaMemcpyHostToDevice);
-	cudaError_t err_dens      = cudaMemcpy(dens, hdens, size, cudaMemcpyHostToDevice);
-	cudaError_t err_u_prev    = cudaMemcpy(u_prev, hu_prev, size, cudaMemcpyHostToDevice);
-	cudaError_t err_v_prev    = cudaMemcpy(v_prev, hv_prev, size, cudaMemcpyHostToDevice);
-	cudaError_t err_dens_prev = cudaMemcpy(dens_prev, hdens_prev, size, cudaMemcpyHostToDevice);
+	cudaError_t err_u         = cudaMemcpy(u, hu, size * sizeof(float), cudaMemcpyHostToDevice);
+	cudaError_t err_v         = cudaMemcpy(v, hv, size * sizeof(float), cudaMemcpyHostToDevice);
+	cudaError_t err_dens      = cudaMemcpy(dens, hdens, size  * sizeof(float), cudaMemcpyHostToDevice);
+	cudaError_t err_u_prev    = cudaMemcpy(u_prev, hu_prev, size * sizeof(float), cudaMemcpyHostToDevice);
+	cudaError_t err_v_prev    = cudaMemcpy(v_prev, hv_prev, size * sizeof(float), cudaMemcpyHostToDevice);
+	cudaError_t err_dens_prev = cudaMemcpy(dens_prev, hdens_prev, size * sizeof(float), cudaMemcpyHostToDevice);
 
 	if (err_u != cudaSuccess ||
 	    err_v != cudaSuccess ||
@@ -402,12 +449,12 @@ static int size = (N+2)*(N+2);
                 times++;
 	}
 	cudaDeviceSynchronize();
-	err_u         = cudaMemcpy(hu, u, size, cudaMemcpyDeviceToHost);
-	err_v         = cudaMemcpy(hv, v, size, cudaMemcpyDeviceToHost);
-        err_dens      = cudaMemcpy(hdens, dens, size, cudaMemcpyDeviceToHost);
-	err_u_prev    = cudaMemcpy(hu_prev, u_prev, size, cudaMemcpyDeviceToHost);
-	err_v_prev    = cudaMemcpy(hv_prev, v_prev, size, cudaMemcpyDeviceToHost);
-	err_dens_prev = cudaMemcpy(hdens_prev, dens_prev, size, cudaMemcpyDeviceToHost);
+	err_u         = cudaMemcpy(hu, u, size * sizeof(float), cudaMemcpyDeviceToHost);
+	err_v         = cudaMemcpy(hv, v, size * sizeof(float), cudaMemcpyDeviceToHost);
+        err_dens      = cudaMemcpy(hdens, dens, size * sizeof(float), cudaMemcpyDeviceToHost);
+	err_u_prev    = cudaMemcpy(hu_prev, u_prev, size * sizeof(float), cudaMemcpyDeviceToHost);
+	err_v_prev    = cudaMemcpy(hv_prev, v_prev, size * sizeof(float), cudaMemcpyDeviceToHost);
+	err_dens_prev = cudaMemcpy(hdens_prev, dens_prev, size * sizeof(float), cudaMemcpyDeviceToHost);
 	if (err_u != cudaSuccess ||
 	    err_v != cudaSuccess ||
 	    err_dens != cudaSuccess ||
