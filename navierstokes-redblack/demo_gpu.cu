@@ -391,17 +391,6 @@ static void reshape_func ( int width, int height )
 static void idle_func ( void )
 {
 static int size = (N+2)*(N+2);
-	cudaError_t err_u         = cudaMemcpy(u, hu, size * sizeof(float), cudaMemcpyHostToDevice);
-	cudaError_t err_v         = cudaMemcpy(v, hv, size * sizeof(float), cudaMemcpyHostToDevice);
-	cudaError_t err_dens      = cudaMemcpy(dens, hdens, size  * sizeof(float), cudaMemcpyHostToDevice);
-
-	if (err_u != cudaSuccess ||
-	    err_v != cudaSuccess ||
-	    err_dens != cudaSuccess)
-	{
-	    fprintf(stderr, "Error al copiar memoria de host a device\n");
-	    return;
-	}
 	static int times = 1;
         static double react_ns_p_cell = 0.0;
         static double vel_ns_p_cell = 0.0;

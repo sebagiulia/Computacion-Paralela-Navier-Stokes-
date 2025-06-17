@@ -37,19 +37,32 @@ static void add_source(uint n, float * x, const float * s, float dt)
     cudaDeviceSynchronize();
 }
 
-__global__ static void set_bnd(unsigned int n, boundary b, float * x)
+__global__ static void set_bnd_kernel(uint n, boundary b, float * x)
 {
-    for (unsigned int i = 1; i <= n; i++) {
-        x[IX(0, i)]     = b == VERTICAL ? -x[IX(1, i)] : x[IX(1, i)];
-        x[IX(n + 1, i)] = b == VERTICAL ? -x[IX(n, i)] : x[IX(n, i)];
-        x[IX(i, 0)]     = b == HORIZONTAL ? -x[IX(i, 1)] : x[IX(i, 1)];
-        x[IX(i, n + 1)] = b == HORIZONTAL ? -x[IX(i, n)] : x[IX(i, n)];
-    }
-    x[IX(0, 0)]         = 0.5f * (x[IX(1, 0)]     + x[IX(0, 1)]);
-    x[IX(0, n + 1)]     = 0.5f * (x[IX(1, n + 1)] + x[IX(0, n)]);
-    x[IX(n + 1, 0)]     = 0.5f * (x[IX(n, 0)]     + x[IX(n + 1, 1)]);
-    x[IX(n + 1, n + 1)] = 0.5f * (x[IX(n, n + 1)] + x[IX(n + 1, n)]);
+    // lanzo 4 n hilos 
+    uint idx = blockIdx.x * blockDim.x + threadIdx.x;
+    uint i = (idx % n) + 1, sel = idx / n;
+    
+    if (sel == 0) x[IX(0, i)]          = b == VERTICAL   ? -x[IX(1, i)] : x[IX(1, i)];
+    else if (sel == 3) x[IX(i, n + 1)] = b == HORIZONTAL ? -x[IX(i, n)] : x[IX(i, n)];
+    else if (sel == 1) x[IX(n + 1, i)] = b == VERTICAL   ? -x[IX(n, i)] : x[IX(n, i)];
+    else if (sel == 2) x[IX(i, 0)]     = b == HORIZONTAL ? -x[IX(i, 1)] : x[IX(i, 1)];
+
+    if (idx == 1)      x[IX(0, 0)]      = 0.5f * (x[IX(1, 0)]     + x[IX(0, 1)]);
+    else if (idx == n) x[IX(0, n + 1)]  = 0.5f * (x[IX(1, n + 1)] + x[IX(0, n)]);
+    else if (idx == 3 * n + 1) x[IX(n + 1, 0)]     = 0.5f * (x[IX(n, 0)]     + x[IX(n + 1, 1)]);
+    else if (idx == 4 * n)     x[IX(n + 1, n + 1)] = 0.5f * (x[IX(n, n + 1)] + x[IX(n + 1, n)]);
 }
+
+static void set_bnd(unsigned int n, boundary b, float * x)
+{
+    // dimensiones para set_bnd_kernel
+    dim3 block(BLOCK_WIDTH);
+    dim3 grid(DIV_CEIL(n*4, block.x));
+
+    set_bnd_kernel<<<grid, block>>>(n, b, x);
+    cudaDeviceSynchronize(); // espero a que los kernels terminen
+}  
 
 __global__ static void lin_solve_rb_step(grid_color color,
                               unsigned int n,
@@ -106,7 +119,7 @@ static void lin_solve(unsigned int n, boundary b,
 	lin_solve_rb_step<<<grid, block>>>(BLACK, n, a, c, blk0, red, blk);
 	cudaDeviceSynchronize();
 
-	set_bnd<<<1,1>>>(n, b, x);
+	set_bnd(n, b, x);
 	
     }
 }
@@ -164,7 +177,7 @@ static void advect(unsigned int n, boundary b, float * d, const float * d0, cons
     advect_kernel<<<grid,block>>>(n,b,d,d0,u,v,dt);
     cudaDeviceSynchronize();
 
-    set_bnd<<<1,1>>>(n, b, d);
+    set_bnd(n, b, d);
 }
 
 __global__ static void project_kernel1(unsigned int n, float *u, float *v, float *p, float *div)
@@ -202,16 +215,16 @@ static void project(unsigned int n, float *u, float *v, float *p, float *div)
     project_kernel1<<<grid,block>>>(n, u, v, p, div);
     cudaDeviceSynchronize();
 
-    set_bnd<<<1,1>>>(n, NONE, div);
-    set_bnd<<<1,1>>>(n, NONE, p);
+    set_bnd(n, NONE, div);
+    set_bnd(n, NONE, p);
     
     lin_solve(n, NONE, p, div, 1, 4);
     
     project_kernel2<<<grid,block>>>(n, u, v, p, div);
     cudaDeviceSynchronize();
 
-    set_bnd<<<1,1>>>(n, VERTICAL, u);
-    set_bnd<<<1,1>>>(n, HORIZONTAL, v);
+    set_bnd(n, VERTICAL, u);
+    set_bnd(n, HORIZONTAL, v);
 }
 
 void dens_step(unsigned int n, float *x, float *x0, float *u, float *v, float diff, float dt)
