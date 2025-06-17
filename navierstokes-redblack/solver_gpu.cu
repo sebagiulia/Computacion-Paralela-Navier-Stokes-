@@ -22,6 +22,7 @@ __global__ static void add_source(unsigned int n, float * x, const float * s, fl
     x[i] += dt * s[i];
 }
 
+
 __device__ static void set_bnd(unsigned int n, boundary b, float * x)
 {
     for (unsigned int i = 1; i <= n; i++) {
@@ -45,38 +46,12 @@ __device__ static void lin_solve_rb_step(grid_color color,
                               float * __restrict__ same)
 {
     size_t gid = blockIdx.x * blockDim.x + threadIdx.x; 
-    if (gid >= n)
-	    return;
     
     int shift_color = color == RED ? 1 : -1;
     int shift_gid   = gid % 2 == 0 ? 1 : -1;
     int shift       = shift_color * shift_gid;
 
     unsigned int start = color == RED ? gid % 2 : (1 - (gid % 2));
-    /* R N R N R N    -> SHIFT =  1, START = 0, GID = 0
-     * N R N R N R    -> SHIFT = -1, START = 1, GID = 1
-     * R N R N R N    -> SHIFT =  1, START = 0, GID = 2
-     * N R N R N R    -> SHIFT = -1, START = 1, GID = 3
-     * R N R N R N    -> SHIFT =  1, START = 0, GID = 2
-     * N R N R N R    -> SHIFT = -1, START = 1, GID = 3
-     *
-     *-----------------------------------
-     * N N N
-     * N N N
-     * N N N
-     * N N N
-     * N N N
-     * N N N
-     *
-     * R R R
-     * R R R
-     * R R R
-     * R R R
-     * R R R
-     * R R R
-     * 
-     */
-
     unsigned int width = (n + 2) / 2;
     unsigned int index = gid + width;
     //for (unsigned int y = 1; y <= n; ++y, shift = -shift, start = 1 - start) {
@@ -113,12 +88,15 @@ __global__ static void lin_solve(unsigned int n, boundary b,
     }
 }
 
+
 static void diffuse(unsigned int n, boundary b, float * x, const float * x0, float diff, float dt)
 {
-    float a = dt * diff * n * n;
-    unsigned int block_size = 128;
-    unsigned int num_blocks = (n + 2) * ((n + 2) / 2) / block_size;
-    lin_solve<<<num_blocks,block_size>>>(n, b, x, x0, a, 1 + 4 * a);
+	float a = dt * diff * n * n;
+	unsigned int block_size = 128;
+	unsigned int active_cells = n * (n / 2);
+	unsigned int num_blocks = (active_cells + block_size - 1) / block_size;
+
+	lin_solve<<<num_blocks, block_size>>>(n, b, x, x0, a, 1 + 4 * a);
 }
 
 __global__ static void advect_kernel(unsigned int n, boundary b, float * d, const float * d0, const float * u, const float * v, float dt)
