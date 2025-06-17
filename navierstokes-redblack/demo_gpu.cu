@@ -148,6 +148,15 @@ static void draw_velocity ( void )
 {
 	int i, j;
 	float x, y, h;
+ 	unsigned int size = (N + 2) * (N + 2);
+        cudaError_t err_u         = cudaMemcpy(hu, u, size * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaError_t err_v         = cudaMemcpy(hv, v, size * sizeof(float), cudaMemcpyDeviceToHost);
+	if (err_u != cudaSuccess ||
+	    err_v != cudaSuccess)
+	{
+	    fprintf(stderr, "Error al copiar memoria de device a host\n");
+	    return;
+	}
 
 	h = 1.0f/N;
 
@@ -173,6 +182,13 @@ static void draw_density ( void )
 {
 	int i, j;
 	float x, y, h, d00, d01, d10, d11;
+	unsigned int size = (N + 2) * (N + 2);
+        cudaError_t err_dens      = cudaMemcpy(hdens, dens, size * sizeof(float), cudaMemcpyDeviceToHost);
+	if(err_dens != cudaSuccess)
+	{
+	    fprintf(stderr, "Error al copiar memoria de device a host\n");
+	    return;
+	}
 
 	h = 1.0f/N;
 
@@ -378,16 +394,10 @@ static int size = (N+2)*(N+2);
 	cudaError_t err_u         = cudaMemcpy(u, hu, size * sizeof(float), cudaMemcpyHostToDevice);
 	cudaError_t err_v         = cudaMemcpy(v, hv, size * sizeof(float), cudaMemcpyHostToDevice);
 	cudaError_t err_dens      = cudaMemcpy(dens, hdens, size  * sizeof(float), cudaMemcpyHostToDevice);
-	cudaError_t err_u_prev    = cudaMemcpy(u_prev, hu_prev, size * sizeof(float), cudaMemcpyHostToDevice);
-	cudaError_t err_v_prev    = cudaMemcpy(v_prev, hv_prev, size * sizeof(float), cudaMemcpyHostToDevice);
-	cudaError_t err_dens_prev = cudaMemcpy(dens_prev, hdens_prev, size * sizeof(float), cudaMemcpyHostToDevice);
 
 	if (err_u != cudaSuccess ||
 	    err_v != cudaSuccess ||
-	    err_dens != cudaSuccess ||
-	    err_u_prev != cudaSuccess ||
-	    err_v_prev != cudaSuccess ||
-	    err_dens_prev != cudaSuccess)
+	    err_dens != cudaSuccess)
 	{
 	    fprintf(stderr, "Error al copiar memoria de host a device\n");
 	    return;
@@ -449,23 +459,7 @@ static int size = (N+2)*(N+2);
                 times++;
 	}
 	cudaDeviceSynchronize();
-	err_u         = cudaMemcpy(hu, u, size * sizeof(float), cudaMemcpyDeviceToHost);
-	err_v         = cudaMemcpy(hv, v, size * sizeof(float), cudaMemcpyDeviceToHost);
-        err_dens      = cudaMemcpy(hdens, dens, size * sizeof(float), cudaMemcpyDeviceToHost);
-	err_u_prev    = cudaMemcpy(hu_prev, u_prev, size * sizeof(float), cudaMemcpyDeviceToHost);
-	err_v_prev    = cudaMemcpy(hv_prev, v_prev, size * sizeof(float), cudaMemcpyDeviceToHost);
-	err_dens_prev = cudaMemcpy(hdens_prev, dens_prev, size * sizeof(float), cudaMemcpyDeviceToHost);
-	if (err_u != cudaSuccess ||
-	    err_v != cudaSuccess ||
-	    err_dens != cudaSuccess ||
-	    err_u_prev != cudaSuccess ||
-	    err_v_prev != cudaSuccess ||
-	    err_dens_prev != cudaSuccess)
-	{
-	    fprintf(stderr, "Error al copiar memoria de device a host\n");
-	    return;
-	}
-
+	
 		
 	glutSetWindow ( win_id );
 	glutPostRedisplay ();
